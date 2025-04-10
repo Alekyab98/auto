@@ -1,0 +1,32 @@
+DECLARE from_date DATE;
+DECLARE to_date DATE;
+DECLARE mdn_input STRING;
+SET from_date = DATE('2025-03-28');
+SET to_date = DATE('2025-03-31');
+SET mdn_input = '165978420';
+
+
+
+
+WITH NRB AS (
+    SELECT DISTINCT trans_dt, trouble_id, lra_device_model, volte_device, lte_device, prob_freq,
+    RIGHT(replace(replace(replace(mdn,"-",''), ")", ''), "(",''),10) as mdn,
+    FORMAT_TIMESTAMP("%Y-%m-%d", timestamp_seconds(cast(create_date as int))) as create_date,
+    FORMAT_TIMESTAMP("%Y-%m-%d", timestamp_seconds(cast(ticket_resolved_date as int))) as ticket_resolved_date,
+    FORMAT_TIMESTAMP("%Y-%m-%d", timestamp_seconds(cast(closed_date as int))) as closed_date,
+    region, city, state, priority_level, extended_priority, technology, tech_type, lat, long_x, ticket_created_by_group,
+    problem_type, problem_description, resolution, assigned_to, work_in_progress_log, resolution___copy, resolution_type, service_type, last_work_in_progress_log_entr, zproblemtype, ticket_source,
+    acss_resolution_description
+    FROM `vz-it-pr-i37v-ndldo-0.vzn_ndl_remedy_core_tbls_v.east_nrb_raw_v1`
+    WHERE DATE(trans_dt) BETWEEN from_date AND date_add(to_date, INTERVAL 1 DAY)
+    AND DATE(FORMAT_TIMESTAMP("%Y-%m-%d", timestamp_seconds(cast(create_date as int)))) BETWEEN from_date AND to_date
+    AND ticket_created_by_group != 'MVA Report'
+    QUALIFY row_number() OVER (PARTITION BY trouble_id ORDER BY trans_dt DESC) = 1
+)
+
+
+
+
+SELECT *
+FROM NRB
+WHERE mdn = mdn_input
