@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# Accept from_date and to_date as arguments, or default to yesterday
+FROM_DATE=${1:-$(date -d "yesterday" '+%Y-%m-%d')}
+TO_DATE=${2:-$FROM_DATE}
+
+# Set your project and dataset
+PROJECT_ID="your-project-id"
+DATASET="your_dataset"
+
+# Call the stored procedure
+bq query \
+  --use_legacy_sql=false \
+  --project_id="$PROJECT_ID" \
+  "CALL \`$PROJECT_ID.$DATASET.insert_fwa_qes_results\`(DATE('$FROM_DATE'), DATE('$TO_DATE'));"
