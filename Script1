@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# Accept date input (YYYY-MM-DD), default to 1st of last month
+DATE_PARAM=${1:-$(date -d "$(date +%Y-%m-01) -1 month" +%Y-%m-01)}
+
+# Set your project and dataset
+PROJECT_ID="your-project-id"
+DATASET="your_dataset"
+
+# Call the stored procedure
+bq query \
+  --use_legacy_sql=false \
+  --project_id="$PROJECT_ID" \
+  "CALL \`$PROJECT_ID.$DATASET.insert_monthly_fwa_qes_results\`(DATE('$DATE_PARAM'));"
