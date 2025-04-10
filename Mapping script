@@ -1,0 +1,20 @@
+#!/bin/bash
+
+# Accept MDN as input argument
+MDN_INPUT=$1
+
+# Validate input
+if [[ -z "$MDN_INPUT" ]]; then
+  echo "Usage: ./run_mdn_lookup.sh <MDN>"
+  exit 1
+fi
+
+# Set project and dataset
+PROJECT_ID="your-project-id"
+DATASET="your_dataset"
+
+# Run the procedure
+bq query \
+  --use_legacy_sql=false \
+  --project_id="$PROJECT_ID" \
+  "CALL \`$PROJECT_ID.$DATASET.get_customer_info_by_mdn\`('$MDN_INPUT');"
