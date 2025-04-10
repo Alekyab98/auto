@@ -1,0 +1,289 @@
+DECLARE date_param DATE;
+SET date_param = DATE('2025-02-01');
+
+
+-- update to start / end, daily
+-- remove churn?
+-- use base as BASE and left join
+-- update pulls to most RECENT date vs actuals
+-- what if everything is MAX
+-- add in all the subscores (aside from just fwa qes)
+-- context: cause_code
+
+
+WITH scores AS (
+  SELECT  date_trunc(rpt_dt, MONTH) as rpt_mth, acct_num, cust_id, cust_line_seq_id, score_name,
+  NTILE(10) OVER(ORDER BY avg(score_value) DESC) as decile_num,
+  COUNT(DISTINCT rpt_dt) as day_count,
+  AVG(score_value) as score_value
+  FROM `vz-it-pr-fjpv-mlopdo-0.mlops_scores_tbls_v.fwa_qes_scores`
+  WHERE score_name = 'fwa_score'
+  AND date_trunc(rpt_dt, MONTH) = date_param
+  GROUP BY 1,2,3,4,5
+),  driver as (
+  --6217872
+ SELECT rpt_mth, acct_num, cust_id, cust_line_seq_id,
+  MAX(subscore_1) subscore_1, MAX(subscore_2) subscore_2, MAX(subscore_3) subscore_3, MAX(feature_1) feature_1, MAX(feature_2) feature_2, MAX(feature_3) feature_3
+ 
+  FROM (
+  SELECT date_trunc(rpt_dt, MONTH) as rpt_mth, acct_num, cust_id, cust_line_seq_id, feature, AVG(value) as shap_value,
+    CASE
+    WHEN feature = 'shap_aseu_utilization' THEN 'Capacity'
+    WHEN feature = 'shap_avg_bsrp_device' THEN 'Signal'
+    WHEN feature = 'shap_avg_memory_percent_free' THEN 'Device'
+    WHEN feature = 'shap_avg_modem_temp' THEN 'Device'
+    WHEN feature = 'shap_avg_path_loss_device' THEN 'Signal'
+    WHEN feature = 'shap_avg_pucch_tx_power_device' THEN 'Signal'
+    WHEN feature = 'shap_avg_rsrp_4g_device' THEN 'Signal'
+    WHEN feature = 'shap_avg_rsrp_5g_device' THEN 'Signal_5G'
+    WHEN feature = 'shap_avg_rsrq_4g_device' THEN 'Signal'
+    WHEN feature = 'shap_avg_rsrq_5g_device' THEN 'Signal_5G'
+    WHEN feature = 'shap_bh_dl_tp' THEN 'Speed'
+    WHEN feature = 'shap_bh_ul_tp' THEN 'Speed'
+    WHEN feature = 'shap_device_reboot_count' THEN 'Device'
+    WHEN feature = 'shap_device_total_downtime_day_in_secs' THEN 'Device'
+    WHEN feature = 'shap_handover_attempt_count_lte_device' THEN 'Reliability'
+    WHEN feature = 'shap_ipv6_switches_device' THEN 'Device'
+    WHEN feature = 'shap_max_util_pct' THEN 'EBH'
+    WHEN feature = 'shap_max_wifi_device_cnt' THEN 'WiFi'
+    WHEN feature = 'shap_mean_cqi_device' THEN 'Signal'
+    WHEN feature = 'shap_mean_sinr_5g_device' THEN 'Signal_5G'
+    WHEN feature = 'shap_mean_sinr_device' THEN 'Signal'
+    WHEN feature = 'shap_non_uw_percentage' THEN 'Accessibility'
+    WHEN feature = 'shap_nr_scg_change_count_device' THEN 'Reliability_5G'
+    WHEN feature = 'shap_nr_scg_change_failure_count_device' THEN 'Reliability_5G'
+    WHEN feature = 'shap_open_nrb_tickets_cnt_30days' THEN 'Expectation_vs_Reality'
+    WHEN feature = 'shap_pbit0_fd_avg' THEN 'EBH'
+    WHEN feature = 'shap_pbit0_fdv_avg' THEN 'EBH'
+    WHEN feature = 'shap_pbit0_fl_avg' THEN 'EBH'
+    WHEN feature = 'shap_prbu_avg' THEN 'Capacity'
+    WHEN feature = 'shap_rach_attempt_count_lte_device' THEN 'Accessibility'
+    WHEN feature = 'shap_rrc_connect_request_count_device' THEN 'Accessibility'
+    END AS subscore,
+    row_number() OVER (PARTITION BY acct_num, cust_id, cust_line_seq_id ORDER BY AVG(value) DESC) as driver,
+    FROM `vz-it-pr-fjpv-mlopdo-0.mlops_scores_tbls_v.fwa_qes_long`
+    WHERE date_trunc(rpt_dt, MONTH) = date_param
+    AND feature LIKE 'shap_%'
+    and feature NOT IN ('shap_max_wifi_device_cnt',
+    -- 'shap_device_total_downtime_day_in_secs',
+    'shap_avg_memory_percent_free',
+    'shap_avg_modem_temp',
+    'shap_open_nrb_tickets_cnt_30days',
+    'shap_ipv6_switches_device'
+    -- 'shap_device_reboot_count'
+    )
+    GROUP BY 1,2,3,4,5
+    QUALIFY driver <= 3
+  )
+  PIVOT(max(subscore) subscore, max(feature) feature for driver IN (1,2,3))
+  GROUP BY 1,2,3,4
+), discos AS (
+ SELECT
+   RPT_MTH,
+   ACTIVITY_DT,
+   CUST_ID,
+   CUST_LINE_SEQ_ID,
+   COALESCE(DSF.PREPAID_IND, 'N') AS PREPAID_IND,
+   (DSF.VOLUNTARY_DISCONNECTS + DSF.INVOLUNTARY_DISCONNECTS) AS DISCONNECTS,
+   DSF.VOLUNTARY_DISCONNECTS,
+   DSF.INVOLUNTARY_DISCONNECTS,
+ FROM vz-it-pr-gk1v-cwlsdo-0.vzw_uda_prd_tbls_v.dla_sum_fact dsf
+ WHERE CAST(DSF.RPT_MTH AS DATE) >= date_param
+  AND(dsf.voluntary_disconnects = 1 or dsf.involuntary_disconnects = 1)
+  and DATE_TRUNC(activity_dt, MONTH) = date_add(date_param, INTERVAL 1 MONTH)
+), disco_reasons AS (
+  SELECT b.*,
+  CASE WHEN Disconnect_Reason_Desc in ('Not Satisfied (Speed)', 'FWA Insufficient Network','No Signal/Coverage Issue','CDMA Network Retirement') THEN 'NETWORK'
+  WHEN Disconnect_Reason_Desc in ('Equipment','Not Satisfied(Appearance)') THEN 'equipment'
+  WHEN Disconnect_Reason_Desc in ('Competitor/Promotion','Price Dissatisfaction') then 'Price'
+  WHEN Disconnect_Reason_Desc in ('MOVE NO-SETUP DISCONNECT','Moving out VZW footprint','Moving to New Location') then 'Movers'
+  WHEN Disconnect_Reason_Desc in ('Financial Hardship') then 'Financial_Hardship'
+  WHEN Disconnect_Reason_Desc in ('Not Satisfied (SetupLoc)','Not Satisfied(Complexity)') then 'Product'
+  WHEN Disconnect_Reason_Desc in ('Cust Scheduling Issues','Customer Request - Other','DFill DOA Return','Duplicate Order/Service','Felt Misinformed','Installation Issues','Never Activated','Never Received Device','Poor Customer Experience','Self Setup No Action','Undeliverable/Return to S') THEN 'Cust_Exp'
+  ELSE 'other' END AS disco_reason_type_new
+FROM (
+  SELECT rpt_mth, cust_id, acct_num, cust_line_seq_id, MTN, cast(target_churn AS NUMERIC) as target_churn, activity_dt ,CHANGE_REAS_DESC as Disconnect_Reason_Desc,DISCO_TYPE,ACTIVITY_CD,reason_sum
+  FROM
+  (
+   select DATE_TRUNC(cast(ac.activity_dt as date), MONTH) as rpt_mth, cust_id, acct_num, cust_line_seq_id,MTN, CASE WHEN UPPER(ACTIVITY_CD)='DE' THEN 1 ELSE 0 END as target_churn, ac.activity_dt, CHANGE_REAS_DESC,
+  CASE WHEN UPPER(COALESCE(trim(cr.change_reas_ctgry_cd),'V')) IN ('A','V') THEN 'VOL' ELSE 'INVOL' END AS DISCO_TYPE,
+  trim(ac.activity_cd) as ACTIVITY_CD,
+  CASE WHEN ac.change_reas_cd = 'A2' THEN 'NP-NotNeeded'
+        WHEN ac.change_reas_cd = 'LL' THEN 'NP-False'
+        WHEN ac.change_reas_cd IN ('c1','c2','c3','c4','c5') THEN 'NP-Death'
+        WHEN ac.change_reas_cd IN ('AF', 'KK') THEN 'NP-Prepaid (KK)'
+        WHEN ac.change_reas_cd IN ('VF') THEN 'NP-Prepaid (Visible)'
+        WHEN ac.change_reas_cd = '91' THEN 'PortOut' ELSE 'NP-Other' END Reason_Sum,
+   row_number() over(partition by cust_id, acct_num, cust_line_seq_id order by CAST(activity_dt as DATE) desc) as rnk
+   from `vz-it-pr-gk1v-cwlsdo-0.vzw_uda_prd_tbls_v.dly_line_activity` ac
+   inner join `vz-it-pr-gk1v-cwlsdo-0.vzw_uda_prd_tbls_v.change_reason` cr
+   on trim(ac.change_reas_cd) = trim(cr.change_reas_cd)
+   and UPPER(trim(ac.activity_cd)) in ('DE','RE')
+   and UPPER(trim(ac.churn_ind)) = 'Y'
+   and UPPER(trim (ac.sor_id)) = 'V'
+   and UPPER(COALESCE(trim(cr.change_reas_ctgry_cd),'V') ) in ('A','V')
+   and DATE_TRUNC(cast(ac.activity_dt as date), MONTH) >= date_param
+  ) AS a
+  where rnk = 1
+ ) AS b
+), primary_enb as (
+  SELECT DISTINCT rpt_mth, cust_id, cust_line_seq_id, connected_enb, connected_4g_sector, ran_vendor,
+  FROM (
+    SELECT DATE_TRUNC(trans_dt,MONTH) as rpt_mth, cust_id, cust_line_seq_id, connected_enb, connected_4g_sector, ran_vendor,
+    COUNT(*) as enb_connections
+    FROM `vz-it-pr-gudv-dtwndo-0.aid_dtwin_fwa_core_tbls_v.fwa_active_customer_performance_daily_norm`
+    WHERE connected_enb IS NOT NULL
+    AND DATE_TRUNC(trans_dt,MONTH) = date_param
+    GROUP BY 1,2,3,4,5,6
+  )
+  QUALIFY ROW_NUMBER() OVER(PARTITION BY cust_id, cust_line_seq_id ORDER BY enb_connections DESC, connected_enb  DESC) = 1
+), primary_gnb as (
+  SELECT DISTINCT rpt_mth, cust_id, cust_line_seq_id, connected_gnb, connected_5g_sector, ran_vendor,
+  FROM (
+    SELECT DATE_TRUNC(trans_dt,MONTH) as rpt_mth, cust_id, cust_line_seq_id, connected_gnb, connected_5g_sector, ran_vendor,
+    COUNT(*) as gnb_connections
+    FROM `vz-it-pr-gudv-dtwndo-0.aid_dtwin_fwa_core_tbls_v.fwa_active_customer_performance_daily_norm`
+    WHERE connected_gnb IS NOT NULL
+    AND DATE_TRUNC(trans_dt,MONTH) = date_param
+    GROUP BY 1,2,3,4,5,6
+  )
+  QUALIFY ROW_NUMBER() OVER(PARTITION BY cust_id, cust_line_seq_id ORDER BY gnb_connections DESC, connected_gnb DESC) = 1
+), kpis AS (
+    SELECT date_trunc(trans_dt, MONTH) as rpt_mth, cust_id, cust_line_seq_id,
+    MAX(address_classification) AS address_classification,
+    MAX(CASE WHEN location_violation_flag = 'Y' THEN 1 else 0 END) AS loc_violation,
+    AVG(SAFE_CAST(latitude as numeric)) sqdb_latitude,
+    AVG(SAFE_CAST(longitude as numeric)) sqdb_longitude,
+    MAX(device_type) as device_type,
+    MAX(price_plan) AS price_plan,
+    MAX(predicted_enb) AS predicted_enb,
+    MAX(predicted_4g_sector) AS predicted_4g_sector,
+    MAX(predicted_gnb) AS predicted_gnb,
+    MAX(predicted_5g_sector) AS predicted_5g_sector,
+    AVG(bh_dl_tp) AS bh_dl_tp,
+    AVG(bh_ul_tp) AS bh_ul_tp,
+    AVG(weighted_dl_tp) AS weighted_dl_tp,
+    AVG(weighted_ul_tp) AS weighted_ul_tp,
+    approx_quantiles( CAST(bh_dl_tp as NUMERIC) , 100)[offset(50)] as UG_p50_dl_speed,
+    approx_quantiles( CAST(bh_ul_tp as NUMERIC) , 100)[offset(50)] as UG_p50_ul_speed,
+    approx_quantiles( CAST(ookla_downloadresult as NUMERIC) , 100)[offset(50)] as OOKLA_p50_dl_speed,
+    approx_quantiles( CAST(ookla_uploadresult as NUMERIC) , 100)[offset(50)] as OOKLA_p50_ul_speed,
+   
+  FROM  `vz-it-pr-gudv-dtwndo-0.aid_dtwin_fwa_core_tbls_v.fwa_active_customer_performance_daily_norm` as base
+  WHERE DATE_TRUNC(trans_dt, MONTH) = date_param
+  -- AND customer_segment = 'CONSUMER'
+  -- AND product = 'C_BAND'
+  GROUP BY 1,2,3
+ 
+), base AS (
+  SELECT a.* EXCEPT(lte_market_id), mar.*
+  FROM (
+    SELECT kpis.*,
+    primary_enb.connected_enb as primary_enb, primary_enb.connected_4g_sector as primary_enb_sector,
+    primary_gnb.connected_gnb as primary_gnb, primary_gnb.connected_5g_sector as primary_gnb_sector,
+    CAST( (case
+        when CAST(primary_enb.connected_enb AS numeric) between 0 and 299999 then FLOOR(CAST(primary_enb.connected_enb AS numeric)/ 1000)
+        when CAST(primary_enb.connected_enb AS numeric)  between 300000 and 599999 then FLOOR(CAST(primary_enb.connected_enb AS numeric) /1000) - 300
+        when CAST(primary_enb.connected_enb AS numeric)  between 600000 and 899999 then FLOOR(CAST(primary_enb.connected_enb AS numeric) /1000) - 600
+        when CAST(primary_enb.connected_enb AS numeric)  > 899999 then 900
+        else 999 end)
+        AS INT64 ) as lte_market_id
+    FROM kpis
+    LEFT JOIN primary_enb
+    ON kpis.cust_id = primary_enb.cust_id
+    AND kpis.cust_line_seq_id = primary_enb.cust_line_seq_id
+    AND kpis.rpt_mth = primary_enb.rpt_mth
+    LEFT JOIN primary_gnb
+    ON kpis.cust_id = primary_gnb.cust_id
+    AND kpis.cust_line_seq_id = primary_gnb.cust_line_seq_id
+    AND kpis.rpt_mth = primary_gnb.rpt_mth
+  ) AS a
+  left join `vz-it-pr-gudv-dtwndo-0.aid_dtwin_analytics_tbls_v.vzw_ltemarkets_tbl` mar
+  ON cast(mar.lte_market_id as numeric) = a.lte_market_id
+  QUALIFY row_number() OVER (PARTITION BY cust_id, cust_line_seq_id ORDER BY a.lte_market_id DESC, a.primary_enb DESC, primary_gnb DESC)  = 1
+),  dma AS (
+  SELECT DATE_TRUNC(rpt_dt, MONTH) as rpt_mth, cust_id, cust_line_seq_id,
+  AVG(aseu_capacity) AS aseu_capacity,
+AVG(aseu_usage) AS aseu_usage,
+AVG(aseu_utilization) AS aseu_utilization,
+AVG(avg_bsrp_device) AS avg_bsrp_device,
+AVG(avg_memory_percent_free) AS avg_memory_percent_free,
+AVG(avg_modem_temp) AS avg_modem_temp,
+AVG(avg_path_loss_device) AS avg_path_loss_device,
+AVG(avg_pucch_tx_power_device) AS avg_pucch_tx_power_device,
+AVG(avg_rsrp_4g_device) AS avg_rsrp_4g_device,
+AVG(avg_rsrp_5g_device) AS avg_rsrp_5g_device,
+AVG(avg_rsrq_4g_device) AS avg_rsrq_4g_device,
+AVG(avg_rsrq_5g_device) AS avg_rsrq_5g_device,
+AVG(avg_rx_pdcp_bytes_device) AS avg_rx_pdcp_bytes_device,
+AVG(bh_avg_rsrq_5g_device) AS bh_avg_rsrq_5g_device,
+-- AVG(bh_dl_tp) AS bh_dl_tp,
+AVG(ug_download_speed) as bh_dl_tp,
+AVG(bh_ul_tp) AS bh_ul_tp,
+AVG(connected_distance_4g) AS connected_distance_4g,
+AVG(connected_distance_5g) AS connected_distance_5g,
+AVG(crash_count) AS crash_count,
+AVG(device_reboot_count) AS device_reboot_count,
+AVG(device_uptime_since_reboot_in_secs) AS device_uptime_since_reboot_in_secs,
+AVG(dl_vol_mb) AS dl_vol_mb,
+AVG(max_util_pct) AS max_util_pct,
+AVG(max_wifi_device_cnt) AS max_wifi_device_cnt,
+AVG(mean_cqi_device) AS mean_cqi_device,
+AVG(mean_sinr_5g_device) AS mean_sinr_5g_device,
+AVG(mean_sinr_device) AS mean_sinr_device,
+AVG(nbh_avg_rsrp_4g_device) AS nbh_avg_rsrp_4g_device,
+AVG(nbh_avg_rsrp_5g_device) AS nbh_avg_rsrp_5g_device,
+AVG(nbh_avg_rsrq_4g_device) AS nbh_avg_rsrq_4g_device,
+AVG(nbh_avg_rsrq_5g_device) AS nbh_avg_rsrq_5g_device,
+AVG(nbh_mean_sinr_5g_device) AS nbh_mean_sinr_5g_device,
+AVG(non_bh_dl_tp) AS non_bh_dl_tp,
+AVG(non_bh_ul_tp) AS non_bh_ul_tp,
+AVG(non_uw_percentage) AS non_uw_percentage,
+AVG(nr_cell_ta_distance) AS nr_cell_ta_distance,
+AVG(nr_scg_change_count_device) AS nr_scg_change_count_device,
+AVG(nr_scg_change_failure_count_device) AS nr_scg_change_failure_count_device,
+SUM(nrb_ticket_cnt_day) AS nrb_ticket_cnt_day,
+AVG(open_nrb_tickets_cnt_30days) AS open_nrb_tickets_cnt_30days,
+AVG(pbit0_fd_avg) AS pbit0_fd_avg,
+AVG(pbit0_fdv_avg) AS pbit0_fdv_avg,
+AVG(pbit0_fl_avg) AS pbit0_fl_avg,
+AVG(pbit5_fd_avg) AS pbit5_fd_avg,
+AVG(pbit5_fdv_avg) AS pbit5_fdv_avg,
+AVG(pbit5_fl_avg) AS pbit5_fl_avg,
+AVG(prbu_avg) AS prbu_avg,
+AVG(predicted_connected_gnb_sect_carr_flag) AS predicted_connected_gnb_sect_carr_flag,
+AVG(premium_fwa_pp) AS premium_fwa_pp,
+AVG(rach_attempt_count_lte_device) AS rach_attempt_count_lte_device,
+AVG(rrc_connect_request_count_device) AS rrc_connect_request_count_device,
+AVG(sub1_trigger_prev_month_4g_cnt) AS sub1_trigger_prev_month_4g_cnt,
+AVG(sub3_trigger_prev_month_4g_cnt) AS sub3_trigger_prev_month_4g_cnt,
+AVG(total_packets_received_device) AS total_packets_received_device,
+AVG(total_packets_sent_device) AS total_packets_sent_device,
+AVG(trigger_4g_flag) AS trigger_4g_flag,
+AVG(trigger_5g_flag) AS trigger_5g_flag,
+AVG(ul_vol_mb) AS ul_vol_mb,
+AVG(weighted_dl_tp) AS weighted_dl_tp,
+AVG(weighted_ul_tp) AS weighted_ul_tp,
+AVG(wifi_score) AS wifi_score,
+   FROM  `vz-it-pr-fjpv-mlopdo-0.mlops_curated_tbls_v.ds_dma_fwa_qes` as dma
+  WHERE DATE_TRUNC(rpt_dt, MONTH) = date_param
+  GROUP BY 1,2,3
+)
+
+
+--  2072624
+  SELECT scores.*, driver.* EXCEPT(rpt_mth, acct_num, cust_id, cust_line_seq_id),
+  base.* EXCEPT(rpt_mth, cust_id, cust_line_seq_id),
+  dma.* EXCEPT(rpt_mth, cust_id, cust_line_seq_id),
+  discos.activity_dt, discos.voluntary_disconnects, disco_reasons.disco_reason_type_new as disco_group_reason,
+  FROM scores
+  LEFT JOIN driver
+  ON scores.cust_id = driver.cust_id AND scores.cust_line_seq_id = driver.cust_line_seq_id AND scores.rpt_mth = driver.rpt_mth
+  LEFT JOIN base
+  ON scores.cust_id = base.cust_id AND scores.cust_line_seq_id = base.cust_line_seq_id AND scores.rpt_mth = base.rpt_mth
+  LEFT JOIN dma
+  ON scores.cust_id = dma.cust_id AND scores.cust_line_seq_id = dma.cust_line_seq_id AND scores.rpt_mth = dma.rpt_mth
+  LEFT JOIN discos
+  ON scores.cust_id = discos.cust_id AND scores.cust_line_seq_id = discos.cust_line_seq_id AND scores.rpt_mth = DATE_SUB(discos.rpt_mth, INTERVAL 1 MONTH)
+  LEFT JOIN disco_reasons
+  ON discos.cust_id = disco_reasons.cust_id AND discos.cust_line_seq_id = disco_reasons.cust_line_seq_id AND discos.rpt_mth = disco_reasons.rpt_mth
