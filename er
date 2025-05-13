@@ -1,0 +1,121 @@
+default-hostname
+*** Reading remote logs from Cloud Logging.
+[2025-05-13, 21:47:02 UTC] {local_task_job_runner.py:123} ▼ Pre task execution logs
+[2025-05-13, 21:47:02 UTC] {taskinstance.py:2614} INFO - Dependencies all met for dep_context=non-requeueable deps ti=<TaskInstance: gudv_nw_research_assistant_nqes_fwa_daily_norm_uat.call_nqes_fwa_sp scheduled__2025-05-11T19:30:00+00:00 [queued]>
+[2025-05-13, 21:47:02 UTC] {taskinstance.py:2614} INFO - Dependencies all met for dep_context=requeueable deps ti=<TaskInstance: gudv_nw_research_assistant_nqes_fwa_daily_norm_uat.call_nqes_fwa_sp scheduled__2025-05-11T19:30:00+00:00 [queued]>
+[2025-05-13, 21:47:02 UTC] {taskinstance.py:2867} INFO - Starting attempt 4 of 4
+[2025-05-13, 21:47:02 UTC] {taskinstance.py:2890} INFO - Executing <Task(BigQueryInsertJobOperator): call_nqes_fwa_sp> on 2025-05-11 19:30:00+00:00
+[2025-05-13, 21:47:02 UTC] {standard_task_runner.py:72} INFO - Started process 100275 to run task
+[2025-05-13, 21:47:02 UTC] {standard_task_runner.py:104} INFO - Running: ['airflow', 'tasks', 'run', 'gudv_nw_research_assistant_nqes_fwa_daily_norm_uat', 'call_nqes_fwa_sp', 'scheduled__2025-05-11T19:30:00+00:00', '--job-id', '3791985', '--raw', '--subdir', 'DAGS_FOLDER/vz-it-gudv-dtwndo-0/nqes_fwa/uat/python/gudv_nqes_fwa.py', '--cfg-path', '/tmp/tmplxarnohk']
+[2025-05-13, 21:47:02 UTC] {standard_task_runner.py:105} INFO - Job 3791985: Subtask call_nqes_fwa_sp
+[2025-05-13, 21:47:02 UTC] {task_command.py:473} INFO - Running <TaskInstance: gudv_nw_research_assistant_nqes_fwa_daily_norm_uat.call_nqes_fwa_sp scheduled__2025-05-11T19:30:00+00:00 [running]> on host airflow-worker-8ltzx
+[2025-05-13, 21:47:02 UTC] {abstractoperator.py:778} ERROR - Exception rendering Jinja template for task 'call_nqes_fwa_sp', field 'configuration'. Template: {'query': {'query': 'CALL aid_dtwin_core_uat_tbls.nqes_fwa_sp(\'{{ (macros.datetime.strptime(data_interval_end.strftime("%Y-%m-%d %H"),"%Y-%m-%d %H")\',\'{{ (macros.datetime.strptime(data_interval_end.strftime("%Y-%m-%d %H"),"%Y-%m-%d %H")\')', 'useLegacySql': False}}
+Traceback (most recent call last):
+  File "/opt/python3.11/lib/python3.11/site-packages/airflow/models/abstractoperator.py", line 770, in _do_render_template_fields
+    rendered_content = self.render_template(
+                       ^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/python3.11/lib/python3.11/site-packages/airflow/template/templater.py", line 185, in render_template
+    return {k: self.render_template(v, context, jinja_env, oids) for k, v in value.items()}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/python3.11/lib/python3.11/site-packages/airflow/template/templater.py", line 185, in <dictcomp>
+    return {k: self.render_template(v, context, jinja_env, oids) for k, v in value.items()}
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/python3.11/lib/python3.11/site-packages/airflow/template/templater.py", line 185, in render_template
+    return {k: self.render_template(v, context, jinja_env, oids) for k, v in value.items()}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/python3.11/lib/python3.11/site-packages/airflow/template/templater.py", line 185, in <dictcomp>
+    return {k: self.render_template(v, context, jinja_env, oids) for k, v in value.items()}
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/python3.11/lib/python3.11/site-packages/airflow/template/templater.py", line 170, in render_template
+    template = jinja_env.from_string(value)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/python3.11/lib/python3.11/site-packages/jinja2/environment.py", line 1108, in from_string
+    return cls.from_code(self, self.compile(source), gs, None)
+                               ^^^^^^^^^^^^^^^^^^^^
+  File "/opt/python3.11/lib/python3.11/site-packages/jinja2/environment.py", line 768, in compile
+    self.handle_exception(source=source_hint)
+  File "/opt/python3.11/lib/python3.11/site-packages/jinja2/environment.py", line 939, in handle_exception
+    raise rewrite_traceback_stack(source=source)
+  File "<unknown>", line 1, in template
+jinja2.exceptions.TemplateSyntaxError: expected token ')', got 'string'
+[2025-05-13, 21:47:02 UTC] {taskinstance.py:3312} ERROR - Task failed with exception
+Traceback (most recent call last):
+  File "/opt/python3.11/lib/python3.11/site-packages/airflow/models/taskinstance.py", line 273, in _run_raw_task
+    TaskInstance._execute_task_with_callbacks(
+  File "/opt/python3.11/lib/python3.11/site-packages/airflow/models/taskinstance.py", line 3116, in _execute_task_with_callbacks
+    task_orig = self.render_templates(context=context, jinja_env=jinja_env)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/python3.11/lib/python3.11/site-packages/airflow/models/taskinstance.py", line 3536, in render_templates
+    original_task.render_template_fields(context, jinja_env)
+  File "/opt/python3.11/lib/python3.11/site-packages/airflow/models/baseoperator.py", line 1439, in render_template_fields
+    self._do_render_template_fields(self, self.template_fields, context, jinja_env, set())
+  File "/opt/python3.11/lib/python3.11/site-packages/airflow/models/abstractoperator.py", line 770, in _do_render_template_fields
+    rendered_content = self.render_template(
+                       ^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/python3.11/lib/python3.11/site-packages/airflow/template/templater.py", line 185, in render_template
+    return {k: self.render_template(v, context, jinja_env, oids) for k, v in value.items()}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/python3.11/lib/python3.11/site-packages/airflow/template/templater.py", line 185, in <dictcomp>
+    return {k: self.render_template(v, context, jinja_env, oids) for k, v in value.items()}
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/python3.11/lib/python3.11/site-packages/airflow/template/templater.py", line 185, in render_template
+    return {k: self.render_template(v, context, jinja_env, oids) for k, v in value.items()}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/python3.11/lib/python3.11/site-packages/airflow/template/templater.py", line 185, in <dictcomp>
+    return {k: self.render_template(v, context, jinja_env, oids) for k, v in value.items()}
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/python3.11/lib/python3.11/site-packages/airflow/template/templater.py", line 170, in render_template
+    template = jinja_env.from_string(value)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/python3.11/lib/python3.11/site-packages/jinja2/environment.py", line 1108, in from_string
+    return cls.from_code(self, self.compile(source), gs, None)
+                               ^^^^^^^^^^^^^^^^^^^^
+  File "/opt/python3.11/lib/python3.11/site-packages/jinja2/environment.py", line 768, in compile
+    self.handle_exception(source=source_hint)
+  File "/opt/python3.11/lib/python3.11/site-packages/jinja2/environment.py", line 939, in handle_exception
+    raise rewrite_traceback_stack(source=source)
+  File "<unknown>", line 1, in template
+jinja2.exceptions.TemplateSyntaxError: expected token ')', got 'string'
+[2025-05-13, 21:47:02 UTC] {taskinstance.py:1226} INFO - Marking task as FAILED. dag_id=gudv_nw_research_assistant_nqes_fwa_daily_norm_uat, task_id=call_nqes_fwa_sp, run_id=scheduled__2025-05-11T19:30:00+00:00, execution_date=20250511T193000, start_date=20250513T214702, end_date=20250513T214702
+[2025-05-13, 21:47:02 UTC] {warnings.py:110} WARNING - /opt/python3.11/lib/python3.11/site-packages/airflow/utils/email.py:155: RemovedInAirflow3Warning: Fetching SMTP credentials from configuration variables will be deprecated in a future release. Please set credentials using a connection instead.
+  send_mime_email(e_from=mail_from, e_to=recipients, mime_msg=msg, conn_id=conn_id, dryrun=dryrun)
+
+[2025-05-13, 21:47:02 UTC] {configuration.py:1076} WARNING - section/key [smtp/smtp_user] not found in config
+[2025-05-13, 21:47:02 UTC] {email.py:272} INFO - Email alerting: attempt 1
+[2025-05-13, 21:47:02 UTC] {email.py:283} INFO - Sent an alert email to ['NDC-DTWIN-UAT-ALERTS@verizon.com']
+[2025-05-13, 21:47:02 UTC] {taskinstance.py:1564} INFO - Executing callback at index 0: partial
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - running_instance_id scheduled__2025-05-11T19:30:00+00:00
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - end_time 2025-05-13T21:47:02
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - error_message expected token ')', got 'string'
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - keyvalue NA
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - logfile https://81edd6332e464321b1581ce47b06eef8-dot-us-east4.composer.googleusercontent.com/dags/gudv_nw_research_assistant_nqes_fwa_daily_norm_uat/grid?dag_run_id=scheduled__2025-05-11T19%3A30%3A00%2B00%3A00&task_id=call_nqes_fwa_sp&base_date=2025-05-11T19%3A30%3A00%2B0000&tab=logs
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - run_date 20250512
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - run_hour 19:30:00
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - start_time 2025-05-13T21:37:43
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - process_start_time 2025-05-13
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - process_end_time 2025-05-13T21:47:02
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - run_day Monday
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - dag_id gudv_nw_research_assistant_nqes_fwa_daily_norm_uat
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - run_status FAILURE
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - inserted_timestamp 2025-05-13T21:47:03
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - process_date 2025-05-13
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - rerun_indicator N
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - gcp_project vz-it-pr-gudv-dtwndo-0
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - process_name gudv_nw_research_assistant_nqes_fwa_daily_norm_uat
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - project_name nw_research_assistant
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - scheduler Airflow
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - source_count 0
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - source_name vz-it-pr-fjpv-mlopdo-0.mlops_scores_tbls.nqes_fwa_scores
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - source_type Table
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - sub_process gudv_nw_research_assistant_nqes_fwa_daily_norm_uat
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - system_name gudv_ndtwin
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - target_count 0
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - target_name vz-it-pr-gudv-dtwndo-0.aid_dtwin_core_uat_tbls.nqes_fwa
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - target_type Table
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - tool_name GCP_BQ
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - frequency Daily
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - source_servername vz-it-pr-i37v-ndlpr
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - target_servername vz-it-pr-gudv-dtwndo-0
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - application_name gudv_ndtwin
+[2025-05-13, 21:47:03 UTC] {logging_mixin.py:190} INFO - target_environment GCP_BQ
+[2025-05-13, 21:47:03 UTC] {taskinstance.py:340} ▶ Post task execution logs
