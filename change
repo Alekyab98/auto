@@ -1,0 +1,451 @@
+CREATE OR REPLACE PROCEDURE ${nqes_site_module_gudv_tgt_dataset_name}.nqes_site_sp(trans_date STRING,process_date STRING)
+OPTIONS(strict_mode=False)
+BEGIN
+  --Insert entry into audit table
+    MERGE ${target_project_id}.${audit_tgt_dataset_name}.${audit_target_tblname} tgt
+    USING(
+        SELECT "nqes_site_daily_norm_sp" prc_name, Cast(process_date AS datetime) AS start_time, Cast(SPLIT(process_date," ")[OFFSET(0)] AS DATE) src_prc_dt
+        ) src
+    ON (src.prc_name=tgt.PROCESS_NAME AND src.START_TIME=tgt.START_TIME)
+    WHEN NOT MATCHED THEN
+    INSERT(
+        PROCESS_MODULE,
+        SCHEDULER,
+        PROCESS_NAME,
+        SOURCE_NAME,
+        TARGET_NAME,
+        START_TIME,
+        END_TIME,
+        PROCESS_DT,
+        NUM_RECORDS_AFFECTED,
+        STATUS,
+        RETURN_MESSAGE,
+        schedule_time,
+        Job_name
+        )
+    VALUES
+  (
+    "network_research_assistant",
+    "airflow",
+    prc_name,
+    "${nqes_site_module_fjpv_src_id}.${nqes_site_module_fjpv_scores_src_dataset_name}.${nqes_site_module_fjpv_scores_src_tblname},${nqes_site_module_gudv_src_id}.${nqes_site_module_gudv_ran_src_dataset_name}.${nqes_site_module_gudv_ran_enodeb_src_tblname},${nqes_site_module_gudv_src_id}.${nqes_site_module_gudv_ran_src_dataset_name}.${nqes_site_module_gudv_ran_cell_src_tblname},${nqes_site_module_gudv_src_id}.${nqes_site_module_gudv_analytics_src_dataset_name}.${nqes_site_module_gudv_analytics_src_tblname},${nqes_site_module_fjpv_src_id}.${nqes_site_module_fjpv_curated_src_dataset_name}.${nqes_site_module_fjpv_curated_src_tblname}",
+    "${target_project_id}.${nqes_site_module_gudv_tgt_dataset_name}.${nqes_site_module_gudv_tgt_tblname}",
+     start_time,
+     NULL,
+     src_prc_dt,
+     NULL,
+     "Started",
+     NULL,
+     safe_cast(process_date as timestamp),
+     "gudv_nw_research_assistant_nqes_site_daily_norm"
+      );
+
+
+DELETE FROM `${target_project_id}.${nqes_site_module_gudv_tgt_dataset_name}.${nqes_site_module_gudv_tgt_tblname}` where trans_dt=Cast(trans_date AS date) and trans_dt is not null;
+
+
+create or replace table ${target_project_id}.${nqes_site_module_gudv_tgt_dataset_name}.nqes_site_stg as
+  WITH  score as (
+  SELECT rpt_dt, enb_gnb_du_id, sector, carrier,
+  AVG(enb_gnb_score) AS enb_gnb_score,
+  AVG(enb_gnb_subscore_capacity) AS enb_gnb_subscore_capacity,
+  AVG(enb_gnb_subscore_ethernet_backhaul) AS enb_gnb_subscore_ethernet_backhaul,
+  AVG(enb_gnb_subscore_reliability) AS enb_gnb_subscore_reliability,
+  AVG(enb_gnb_subscore_signal_quality_coverage) AS enb_gnb_subscore_signal_quality_coverage,
+  AVG(gnb_du_sect_carr_subscore_5g) AS gnb_du_sect_carr_subscore_5g,
+  AVG(enb_gnb_score_decile) AS enb_gnb_score_decile,
+  AVG(enb_gnb_subscore_capacity_decile) AS enb_gnb_subscore_capacity_decile,
+  AVG(enb_gnb_subscore_ethernet_backhaul_decile) AS enb_gnb_subscore_ethernet_backhaul_decile,
+  AVG(enb_gnb_subscore_reliability_decile) AS enb_gnb_subscore_reliability_decile,
+  AVG(enb_gnb_subscore_signal_quality_coverage_decile) AS enb_gnb_subscore_signal_quality_coverage_decile,
+  AVG(gnb_du_sect_carr_subscore_5g_decile) AS gnb_du_sect_carr_subscore_5g_decile
+  FROM (
+    SELECT rpt_dt, lte_market_id, sector, carrier, COALESCE(gnb_du_id, enodeb_id) AS enb_gnb_du_id,
+    COALESCE(score_gnb_du_sect_carr_score, score_enb_sect_carr_score) AS enb_gnb_score,
+    COALESCE(score_gnb_du_sect_carr_subscore_capacity, score_enb_sect_carr_subscore_capacity) AS enb_gnb_subscore_capacity,
+    COALESCE(score_gnb_du_sect_carr_subscore_ethernet_backhaul, score_enb_sect_carr_subscore_ethernet_backhaul) AS enb_gnb_subscore_ethernet_backhaul,
+    COALESCE(score_gnb_du_sect_carr_subscore_reliability, score_enb_sect_carr_subscore_reliability) AS enb_gnb_subscore_reliability,
+    COALESCE(score_gnb_du_sect_carr_subscore_signal_quality_coverage, score_enb_sect_carr_subscore_signal_quality_coverage) AS enb_gnb_subscore_signal_quality_coverage,
+    COALESCE(score_gnb_du_sect_carr_subscore_5g, null) AS gnb_du_sect_carr_subscore_5g,
+        COALESCE(decile_gnb_du_sect_carr_score, decile_enb_sect_carr_score) AS enb_gnb_score_decile,
+    COALESCE(decile_gnb_du_sect_carr_subscore_capacity, decile_enb_sect_carr_subscore_capacity) AS enb_gnb_subscore_capacity_decile,
+    COALESCE(decile_gnb_du_sect_carr_subscore_ethernet_backhaul, decile_enb_sect_carr_subscore_ethernet_backhaul) AS enb_gnb_subscore_ethernet_backhaul_decile,
+    COALESCE(decile_gnb_du_sect_carr_subscore_reliability, decile_enb_sect_carr_subscore_reliability) AS enb_gnb_subscore_reliability_decile,
+    COALESCE(decile_gnb_du_sect_carr_subscore_signal_quality_coverage, decile_enb_sect_carr_subscore_signal_quality_coverage) AS enb_gnb_subscore_signal_quality_coverage_decile,
+    COALESCE(decile_gnb_du_sect_carr_subscore_5g, null) AS gnb_du_sect_carr_subscore_5g_decile,
+    FROM
+    (
+      SELECT DISTINCT rpt_dt, enodeb_id, gnb_du_id, sector, carrier,
+      COALESCE(lte_market_id, LPAD(CAST(CAST( (case    
+when SAFE_CAST(LEFT(COALESCE(enodeb_id, gnb_du_id),6) AS NUMERIC) between 0 and 899999 then MOD(FLOOR(SAFE_CAST(LEFT(COALESCE(enodeb_id, gnb_du_id),6) AS NUMERIC)/1000), 300)
+      when SAFE_CAST(LEFT(COALESCE(enodeb_id, gnb_du_id),6) AS NUMERIC) > 899999 then 900
+      else 999 end) AS INT64 ) AS STRING),5,'0')) AS lte_market_id,
+      score_value, score_name, score_decile,
+      FROM ${nqes_site_module_fjpv_src_id}.${nqes_site_module_fjpv_scores_src_dataset_name}.${nqes_site_module_fjpv_scores_src_tblname}
+      WHERE score_name in ('enb_sect_carr_score',
+      'enb_sect_carr_subscore_capacity',
+      'enb_sect_carr_subscore_ethernet_backhaul',
+      'enb_sect_carr_subscore_reliability',
+      'enb_sect_carr_subscore_signal_quality_coverage',
+      'gnb_du_sect_carr_score',
+      'gnb_du_sect_carr_subscore_5g',
+      'gnb_du_sect_carr_subscore_capacity',
+      'gnb_du_sect_carr_subscore_ethernet_backhaul',
+      'gnb_du_sect_carr_subscore_reliability',
+      'gnb_du_sect_carr_subscore_signal_quality_coverage')
+      -- AND CAST(lte_market_id AS int64) in (146,149,151,142,144,145,143,147,148)
+      AND cast(rpt_dt as DATE)  = SAFE_CAST(trans_date AS DATE) 
+     
+    )
+    PIVOT (AVG(score_value) as score, AVG(score_decile) as decile FOR score_name IN ('enb_sect_carr_score',
+      'enb_sect_carr_subscore_capacity',
+      'enb_sect_carr_subscore_ethernet_backhaul',
+      'enb_sect_carr_subscore_reliability',
+      'enb_sect_carr_subscore_signal_quality_coverage',
+      'gnb_du_sect_carr_score',
+      'gnb_du_sect_carr_subscore_5g',
+      'gnb_du_sect_carr_subscore_capacity',
+      'gnb_du_sect_carr_subscore_ethernet_backhaul',
+      'gnb_du_sect_carr_subscore_reliability',
+      'gnb_du_sect_carr_subscore_signal_quality_coverage'))
+  )
+  --WHERE CAST(lte_market_id AS int64) in (87,91,100,101,98,99,96,86,102,88,90,89,97)
+  GROUP BY 1,2,3,4
+), raw_kpi AS (
+SELECT rpt_dt, lte_market_id, 
+COALESCE(gnb_du_id, enodeb_id) AS enb_gnb_du_id,  LEFT(COALESCE(gnb_du_id, enodeb_id),7) AS enb_gnb_id, 
+sector, carrier,
+SUM(qci1_count) AS qci1_count,
+SUM(qci5_count) AS qci5_count,
+SUM(qci7_count) AS qci7_count,
+SUM(qci8_count) AS qci8_count,
+SUM(qci9_count) AS qci9_count,
+SUM(number_of_connections) AS number_of_connections,
+SUM(dropped_connections) AS dropped_connections,
+AVG(dropped_session_pct) AS dropped_session_pct,
+SUM(data_sessions) AS data_sessions,
+SUM(dropped_data_sessions) AS dropped_data_sessions,
+SUM(number_of_calls) AS number_of_calls,
+SUM(dropped_calls) AS dropped_calls,
+AVG(dropped_calls_rate) AS dropped_calls_rate,
+SUM(voice_releases) AS voice_releases,
+SUM(data_releases) AS data_releases,
+SUM(normal_releases) AS normal_releases,
+AVG(normal_releases_pct) as normal_releases_pct,
+AVG(qci9_data_sessions_pct) as qci9_data_sessions_pct,
+AVG(cqi_per_session_avg) AS cqi_per_session_avg,
+AVG(sinr_avg) AS sinr_avg,
+AVG(rsrq_avg) AS rsrq_avg,
+AVG(rsrq_5g_avg) AS rsrq_5g_avg,
+AVG(rsrp_avg) AS rsrp_avg,
+AVG(rsrp_5g_avg) AS rsrp_5g_avg,
+AVG(end_dist_to_site_avg) AS end_dist_to_site_avg,
+SUM(dur_5g) AS dur_5g,
+SUM(dur_all) AS dur_all,
+AVG(duration_5g_pct) AS duration_5g_pct,
+AVG(weighted_prbu_avg) AS weighted_prbu_avg,
+AVG(prbu_avg) AS prbu_avg,
+SUM(dl_data_volume) AS dl_data_volume,
+SUM(ul_data_volume) AS ul_data_volume,
+AVG(sdr_volume_uwb_5g_pct) AS sdr_volume_uwb_5g_pct,
+SUM(customer_network_capability) AS customer_network_capability,
+SUM(cnc_fails) AS cnc_fails,
+SUM(cnc_connections) AS cnc_connections,
+AVG(ebh_score) as ebh_score,
+AVG(pbit0_fd_avg) AS pbit0_fd_avg,
+AVG(pbit0_fd_max) AS pbit0_fd_max,
+AVG(pbit0_fdv_avg) AS pbit0_fdv_avg,
+AVG(pbit0_fdv_max) AS pbit0_fdv_max,
+AVG(pbit0_fl_avg) AS pbit0_fl_avg,
+AVG(pbit5_fd_avg) AS pbit5_fd_avg,
+AVG(pbit5_fd_max) AS pbit5_fd_max,
+AVG(pbit5_fdv_avg) AS pbit5_fdv_avg,
+AVG(pbit5_fdv_max) AS pbit5_fdv_max,
+AVG(pbit5_fl_avg) AS pbit5_fl_avg,
+AVG(pbit0_fd_avg_ot) AS pbit0_fd_avg_ot,
+AVG(pbit0_fd_max_ot) AS pbit0_fd_max_ot,
+AVG(pbit5_fd_avg_ot) AS pbit5_fd_avg_ot,
+AVG(pbit5_fd_max_ot) AS pbit5_fd_max_ot,
+AVG(pbit0_fdv_avg_ot) AS pbit0_fdv_avg_ot,
+AVG(pbit0_fdv_max_ot) AS pbit0_fdv_max_ot,
+AVG(pbit5_fdv_avg_ot) AS pbit5_fdv_avg_ot,
+AVG(pbit5_fdv_max_ot) AS pbit5_fdv_max_ot,
+AVG(pbit0_fl_avg_ot) AS pbit0_fl_avg_ot,
+AVG(pbit5_fl_avg_ot) AS pbit5_fl_avg_ot,
+AVG(prbu_over_90_pct) AS prbu_over_90_pct,
+AVG(num_low_level_band_switches_per_min) as num_low_level_band_switches_per_min,
+AVG(num_high_level_band_switches_per_min) as num_high_level_band_switches_per_min ,
+AVG(en_dc_sgnb_addition_failure_rt_pct) as en_dc_sgnb_addition_failure_rt_pct,
+AVG(en_dc_sgnb_modification_failure_rt_pct) as en_dc_sgnb_modification_failure_rt_pct,
+AVG(en_dc_sgnb_drops_rt_pct) as en_dc_sgnb_drops_rt_pct,
+AVG(rtpgapratio_network_downlink) as rtpgapratio_network_downlink,
+AVG(rtpgapratio_network_uplink) as rtpgapratio_network_uplink,
+AVG(max_utils_pct) as max_utils_pct ,
+AVG(aseu_utilization_avg) as aseu_utilization_avg,
+AVG(duration_sub1_pct) as duration_sub1_pct,
+AVG(uplink_packet_loss_qci1_4g) as  uplink_packet_loss_qci1_4g,
+AVG(radio_bearer_drop_pct) as radio_bearer_drop_pct,
+AVG(rrc_setup_failure_pct) as rrc_setup_failure_pct
+  FROM ${nqes_site_module_fjpv_src_id}.${nqes_site_module_fjpv_curated_src_dataset_name}.${nqes_site_module_fjpv_curated_src_tblname}
+  WHERE cast(rpt_dt as DATE)  = SAFE_CAST(trans_date AS DATE) 
+  GROUP BY 1,2,3,4,5,6
+),
+site_map as (
+    SELECT DISTINCT cor.site_id, cor.enodeb_id, gnb_du_id, site.latitude, site.longitude,
+    CASE WHEN length(gnb_du_id) >= 7 THEN gnb_du_id ELSE enodeb_id END AS enb_gnb_du_id,
+    CASE WHEN length(gnb_du_id) >= 7 THEN '5G'ELSE'4G' END AS technology,
+     FROM ${nqes_site_module_gudv_src_id}.${nqes_site_module_gudv_ran_src_dataset_name}.${nqes_site_module_gudv_ran_enodeb_src_tblname} AS cor
+    JOIN ${nqes_site_module_gudv_src_id}.${nqes_site_module_gudv_ran_src_dataset_name}.${nqes_site_module_gudv_ran_cell_src_tblname} AS site
+    ON cast(cor.site_id as STRING) = cast(site.site_id as String)
+     WHERE cor.trans_dt = CAST(date_sub(cast(trans_date as DATE),  INTERVAL 5 DAY) AS STRING)
+    AND site.trans_dt = CAST(date_sub(cast(trans_date as DATE),  INTERVAL 5 DAY) AS STRING)
+AND COALESCE(safe_cast(cor.enodeb_id AS int64), 0) != 0
+    AND COALESCE(safe_cast(site.site_id AS int64), 0) != 0
+    QUALIFY row_number() OVER (PARTITION BY cor.enodeb_id ORDER BY cor.site_id DESC, site.latitude DESC, site.longitude ASC, cor.trans_dt DESC) = 1
+),
+final_data as(
+SELECT DISTINCT raw_kpi.*, score.* EXCEPT(rpt_dt, enb_gnb_du_id , sector, carrier),
+site_map.* EXCEPT(enb_gnb_du_id, enodeb_id, gnb_du_id), mar.* EXCEPT(lte_market_id)
+FROM raw_kpi
+LEFT JOIN score
+ON cast(score.enb_gnb_du_id as STRING) = cast(raw_kpi.enb_gnb_du_id  as STRING)
+AND cast(score.sector as INT64) = cast(raw_kpi.sector  as INT64)
+AND score.carrier = raw_kpi.carrier
+AND cast(score.rpt_dt as DATE) = cast(raw_kpi.rpt_dt as DATE)
+LEFT JOIN site_map
+ON cast(raw_kpi.enb_gnb_du_id as STRING) = cast(site_map.enb_gnb_du_id as STRING)
+LEFT JOIN ${nqes_site_module_gudv_src_id}.${nqes_site_module_gudv_analytics_src_dataset_name}.${nqes_site_module_gudv_analytics_src_tblname} mar
+ON CAST(mar.lte_market_id as numeric) = CAST(raw_kpi.lte_market_id as NUMERIC))
+;
+
+INSERT INTO `${target_project_id}.${nqes_site_module_gudv_tgt_dataset_name}.${nqes_site_module_gudv_tgt_tblname}`(
+trans_dt,
+du_id,
+enodeb_id,
+sector,
+carrier,
+qci1_count,
+qci5_count,
+qci7_count,
+qci8_count,
+qci9_count,
+number_of_connections,
+dropped_connections,
+dropped_session_pct,
+data_sessions,
+dropped_data_sessions,
+number_of_calls,
+dropped_calls,
+dropped_calls_rate,
+voice_releases,
+data_releases,
+normal_releases,
+normal_releases_pct,
+qci9_data_sessions_pct,
+cqi_per_session_avg,
+sinr_avg,
+rsrq_avg,
+rsrq_5g_avg,
+rsrp_avg,
+rsrp_5g_avg,
+end_dist_to_site_avg,
+dur_5g,
+dur_all,
+duration_5g_pct,
+weighted_prbu_avg,
+prbu_avg,
+dl_data_volume,
+ul_data_volume,
+sdr_volume_uwb_5g_pct,
+customer_network_capability,
+cnc_fails,
+cnc_connections,
+ebh_score,
+pbit0_fd_avg,
+pbit0_fd_max,
+pbit0_fdv_avg,
+pbit0_fdv_max,
+pbit0_fl_avg,
+pbit5_fd_avg,
+pbit5_fd_max,
+pbit5_fdv_avg,
+pbit5_fdv_max,
+pbit5_fl_avg,
+pbit0_fd_avg_ot,
+pbit0_fd_max_ot,
+pbit5_fd_avg_ot,
+pbit5_fd_max_ot,
+pbit0_fdv_avg_ot,
+pbit0_fdv_max_ot,
+pbit5_fdv_avg_ot,
+pbit5_fdv_max_ot,
+pbit0_fl_avg_ot,
+pbit5_fl_avg_ot,
+prbu_over_90_pct,
+num_low_level_band_switches_per_min,
+num_high_level_band_switches_per_min,
+en_dc_sgnb_addition_failure_rt_pct,
+en_dc_sgnb_modification_failure_rt_pct,
+en_dc_sgnb_drops_rt_pct,
+rtpgapratio_network_downlink,
+rtpgapratio_network_uplink,
+max_utils_pct,
+aseu_utilization_avg,
+duration_sub1_pct,
+uplink_packet_loss_qci1_4g,
+radio_bearer_drop_pct,
+rrc_setup_failure_pct,
+enb_gnb_score,
+enb_gnb_subscore_capacity,
+enb_gnb_subscore_ethernet_backhaul,
+enb_gnb_subscore_reliability,
+enb_gnb_subscore_signal_quality_coverage,
+gnb_du_sect_carr_subscore_5g,
+enb_gnb_score_decile,
+enb_gnb_subscore_capacity_decile,
+enb_gnb_subscore_ethernet_backhaul_decile,
+enb_gnb_subscore_reliability_decile,
+enb_gnb_subscore_signal_quality_coverage_decile,
+gnb_du_sect_carr_subscore_5g_decile,
+site_id,
+latitude,
+longitude,
+technology,
+territory,
+market,
+submarket,
+submarket_long,
+lte_market_id,
+lte_market_name,
+process_dt,
+created_timestamp
+)
+select 
+rpt_dt as trans_dt,
+enb_gnb_du_id as du_id,
+enb_gnb_id as enodeb_id,
+sector,
+safe_cast(carrier as int64) as carrier,
+qci1_count,
+qci5_count,
+qci7_count,
+qci8_count,
+qci9_count,
+number_of_connections,
+dropped_connections,
+dropped_session_pct,
+data_sessions,
+dropped_data_sessions,
+number_of_calls,
+dropped_calls,
+dropped_calls_rate,
+voice_releases,
+data_releases,
+normal_releases,
+normal_releases_pct,
+qci9_data_sessions_pct,
+cqi_per_session_avg,
+sinr_avg,
+rsrq_avg,
+rsrq_5g_avg,
+rsrp_avg,
+rsrp_5g_avg,
+end_dist_to_site_avg,
+dur_5g,
+dur_all,
+duration_5g_pct,
+weighted_prbu_avg,
+prbu_avg,
+dl_data_volume,
+ul_data_volume,
+safe_cast(sdr_volume_uwb_5g_pct as int64) as sdr_volume_uwb_5g_pct ,
+customer_network_capability,
+cnc_fails,
+cnc_connections,
+ebh_score,
+pbit0_fd_avg,
+pbit0_fd_max,
+pbit0_fdv_avg,
+pbit0_fdv_max,
+pbit0_fl_avg,
+pbit5_fd_avg,
+pbit5_fd_max,
+pbit5_fdv_avg,
+pbit5_fdv_max,
+pbit5_fl_avg,
+pbit0_fd_avg_ot,
+pbit0_fd_max_ot,
+pbit5_fd_avg_ot,
+pbit5_fd_max_ot,
+pbit0_fdv_avg_ot,
+pbit0_fdv_max_ot,
+pbit5_fdv_avg_ot,
+pbit5_fdv_max_ot,
+pbit0_fl_avg_ot,
+pbit5_fl_avg_ot,
+prbu_over_90_pct,
+num_low_level_band_switches_per_min,
+num_high_level_band_switches_per_min,
+en_dc_sgnb_addition_failure_rt_pct,
+en_dc_sgnb_modification_failure_rt_pct,
+en_dc_sgnb_drops_rt_pct,
+rtpgapratio_network_downlink,
+rtpgapratio_network_uplink,
+max_utils_pct,
+aseu_utilization_avg,
+safe_cast(duration_sub1_pct as int64)as duration_sub1_pct,
+uplink_packet_loss_qci1_4g,
+radio_bearer_drop_pct,
+rrc_setup_failure_pct,
+enb_gnb_score,
+enb_gnb_subscore_capacity,
+enb_gnb_subscore_ethernet_backhaul,
+enb_gnb_subscore_reliability,
+enb_gnb_subscore_signal_quality_coverage,
+gnb_du_sect_carr_subscore_5g,
+safe_cast(enb_gnb_score_decile as int64) as enb_gnb_score_decile,
+safe_cast(enb_gnb_subscore_capacity_decile as int64) as enb_gnb_subscore_capacity_decile,
+safe_cast(enb_gnb_subscore_ethernet_backhaul_decile as int64) as enb_gnb_subscore_ethernet_backhaul_decile,
+safe_cast(enb_gnb_subscore_reliability_decile as int64) as enb_gnb_subscore_reliability_decile,
+safe_cast(enb_gnb_subscore_signal_quality_coverage_decile as int64) as enb_gnb_subscore_signal_quality_coverage_decile,
+safe_cast(gnb_du_sect_carr_subscore_5g_decile as int64)as gnb_du_sect_carr_subscore_5g_decile,
+site_id,
+latitude,
+longitude,
+technology,
+territory,
+market,
+submarket,
+submarket_long,
+lte_market_id,
+lte_market_name,
+SAFE_CAST(process_date AS DATE) as process_dt,
+current_timestamp() as created_timestamp
+from ${target_project_id}.${nqes_site_module_gudv_tgt_dataset_name}.nqes_site_stg;
+
+-- Insert record into Audit table
+UPDATE ${target_project_id}.${audit_tgt_dataset_name}.${audit_target_tblname}
+SET
+END_TIME=current_datetime(),
+NUM_RECORDS_AFFECTED=@@Row_Count,
+STATUS="Completed",
+RETURN_MESSAGE="Success"
+WHERE
+PROCESS_NAME="nqes_site_sp" AND start_time=Cast(process_date AS datetime);
+
+-- Insert record into Audit table
+SELECT "Process Completed Successfully";
+
+EXCEPTION WHEN ERROR THEN
+--update audit table with error status
+UPDATE ${target_project_id}.${audit_tgt_dataset_name}.${audit_target_tblname}
+SET
+END_TIME=current_datetime(),
+STATUS="Error",
+RETURN_MESSAGE=Concat(@@error.message,"------***----",@@ERROR.statement_text)
+WHERE
+PROCESS_NAME="nqes_site_sp" AND start_time=Cast(process_date AS datetime);
+RAISE USING message=@@error.message;
+
+END
+;
