@@ -1,0 +1,150 @@
+# DAG with Source Check Integration
+from datetime import datetime, timedelta
+from airflow import DAG
+import os
+import sys
+import yaml
+from airflow.providers.google.cloud.operators.bigquery import BigQueryInsertJobOperator
+from airflow.providers.google.cloud.hooks.bigquery import BigQueryHook
+from airflow.operators.dummy import DummyOperator
+from airflow.operators.python import PythonOperator
+from airflow.utils.trigger_rule import TriggerRule
+from functools import partial
+from DO_utils import publishLog, create_do_dict
+
+BASE_DIR = "/home/airflow/gcs/dags/vz-it-gudv-dtwndo-0"
+sys.path.append(f"{BASE_DIR}/nqes_fwa/uat/python")
+
+project = os.environ['GCP_PROJECT']
+with open(f"{BASE_DIR}/nqes_fwa/uat/config/base_config.yml", 'r') as file:
+    base_config = yaml.full_load(file)
+
+with open(f"{BASE_DIR}/nqes_fwa/uat/config/gudv_nqes_fwa.yml", 'r') as file:
+    dag_config = yaml.full_load(file)
+
+config_values = {}
+
+filtered_base_dict = dict(filter(lambda elem: elem[0] == project, base_config.items()))
+filtered_dict = dict(filter(lambda elem: elem[0] == project, dag_config.items()))
+
+if len(filtered_base_dict) > 0:
+    base_value = filtered_base_dict[project][0]
+    config_values = {**config_values, **base_value}
+else:
+    print("No config found exiting...")
+    sys.exit(-1)
+if len(filtered_dict) > 0:
+    app_value = filtered_dict[project][0]
+    config_values = {**config_values, **app_value}
+else:
+    print("No config found exiting...")
+    sys.exit(-1)
+
+GCP_PROJECT_ID = config_values['gcp_project']
+bq_connection_id = config_values['google_cloud_conn_id']
+region = config_values['region']
+DAG_ID = config_values['dag_id']
+base_directory = config_values['base_directory']
+env = config_values['env']
+dataset_id = config_values['dataset_id']
+stored_proc = config_values['stored_proc']
+table_name = config_values['table_name']
+schedule_interval = config_values['schedule_interval']
+failure_email_alert_distro = config_values['failure_email_alert_distro']
+
+# Derive trans_date
+from_date = '{{ (macros.datetime.strptime(data_interval_end.strftime("%Y-%m-%d"),"%Y-%m-%d") - macros.dateutil.relativedelta.relativedelta(days=5)).strftime("%Y-%m-%d") }}'
+process_date = '{{ (macros.datetime.strptime(data_interval_end.strftime("%Y-%m-%d %H"),"%Y-%m-%d %H")).strftime("%Y-%m-%d")}}'
+
+default_args = {
+    'owner': 'airflow',
+    'depends_on_past': False,
+    'start_date': datetime(year=2025, month=5, day=1, hour=9, minute=00),
+    'email': [failure_email_alert_distro],
+    'email_on_failure': True,
+    'email_on_retry': False,
+    'retries': 3,
+    'retry_delay': timedelta(minutes=3)
+}
+
+dag = DAG(
+    dag_id=DAG_ID,
+    schedule_interval=schedule_interval,
+    catchup=True,
+    default_args=default_args,
+    description='This DAG calls a Stored Procedure with a Source Check',
+    concurrency=int(config_values['concurrency']),
+    max_active_runs=int(config_values['max_active_runs']),
+    tags=["dtwin", "nw_research_assistant", "network_genie", "nqes_fwa"]
+)
+
+do_dict = create_do_dict(config_values)
+
+start = DummyOperator(task_id='start',
+                      dag=dag,
+                      on_success_callback=partial(publishLog, "PROGRESS", do_dict),
+                      on_failure_callback=partial(publishLog, "FAILURE", do_dict))
+
+# ** Source Check Task **
+source_check_query = f"""
+    SELECT COUNT(*) AS status_check
+    FROM `vz-it-pr-fjpv-mlopdo-0.mlops_curated_tbls_v.run_dt_cntrl_tbl_v2`
+    WHERE process_nm IN ('ETL_NTWK_DMA_NQES_SITE')
+      AND status = 'COMPLETE'
+      AND run_dt = '{{ macros.datetime.strptime(data_interval_end.strftime("%Y-%m-%d"), "%Y-%m-%d") }}'
+"""
+
+# This task checks the source status
+source_check = BigQueryInsertJobOperator(
+    task_id="source_check",
+    dag=dag,
+    gcp_conn_id=bq_connection_id,
+    configuration={
+        "query": {
+            "query": source_check_query,
+            "useLegacySql": False
+        }
+    },
+    on_failure_callback=partial(publishLog, "FAILURE", do_dict)
+)
+
+# ** Wait & Retry if Source Check Fails **
+wait_for_data = DummyOperator(
+    task_id='wait_for_data',
+    dag=dag,
+    trigger_rule=TriggerRule.ONE_FAILED,
+    retry_delay=timedelta(hours=3),
+    retries=3
+)
+
+# ** Alert if All Retries Fail **
+alert_failure = DummyOperator(
+    task_id='alert_failure',
+    dag=dag,
+    trigger_rule=TriggerRule.ALL_FAILED,
+    on_failure_callback=partial(publishLog, "FAILURE", do_dict)
+)
+
+# ** Call Stored Procedure **
+call_nqes_fwa_sp = BigQueryInsertJobOperator(
+    task_id="call_nqes_fwa_sp",
+    dag=dag,
+    gcp_conn_id=bq_connection_id,
+    configuration={
+        "query": {
+            "query": f"CALL {dataset_id}.{stored_proc}('{from_date}', '{process_date}')",
+            "useLegacySql": False,
+        }
+    },
+    on_failure_callback=partial(publishLog, "FAILURE", do_dict)
+)
+
+end = DummyOperator(task_id='end',
+                    dag=dag,
+                    on_success_callback=partial(publishLog, "SUCCESS", do_dict),
+                    on_failure_callback=partial(publishLog, "FAILURE", do_dict))
+
+# ** DAG Sequence **
+start >> source_check
+source_check >> call_nqes_fwa_sp >> end
+source_check >> wait_for_data >> alert_failure
