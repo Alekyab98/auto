@@ -1,0 +1,26 @@
+def check_src_data(**kwargs):
+    hook = BigQueryHook(gcp_conn_id=bq_connection_id)
+    query = f"""
+        SELECT COUNT(*) AS status_check
+        FROM `vz-it-pr-fjpv-mlopdo-0.mlops_curated_tbls_v.run_dt_cntrl_tbl_v2`
+        WHERE process_nm IN ('ETL_NTWK_DMA_NQES_SITE')
+        AND status = 'COMPLETE'
+        AND run_dt = '{kwargs["ds"]}'
+    """
+    
+    # These lines must be indented properly
+    retry_interval = 900   # 15 minutes
+    max_attempts = 12      # 3 hours total (12 * 15 = 180 minutes)
+    attempt = 0
+    
+    while attempt < max_attempts:
+        records = hook.get_records(sql=query)
+        if records and records[0][0] > 0:
+            print("Data is available, proceeding with next step")
+            return True
+        else:
+            print(f"Data not found, retrying attempt {attempt + 1} of 12")
+            time.sleep(retry_interval)
+            attempt += 1
+    
+    raise ValueError("Data not found after 3 hours of retrying")
