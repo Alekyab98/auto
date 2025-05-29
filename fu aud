@@ -1,0 +1,128 @@
+CREATE OR REPLACE PROCEDURE ${fuze_projects_module_gudv_tgt_dataset_name}.fuze_projects_sp(trans_date STRING,process_date STRING)
+OPTIONS(strict_mode=False)
+
+BEGIN
+     --Insert entry into audit table
+    MERGE ${target_project_id}.${audit_tgt_dataset_name}.${audit_target_tblname} tgt
+    USING(
+        SELECT "fuze_projects_daily_norm_sp" prc_name, Cast(process_date AS datetime) AS start_time, Cast(SPLIT(process_date," ")[OFFSET(0)] AS DATE) src_prc_dt
+        ) src
+    ON (src.prc_name=tgt.PROCESS_NAME AND src.START_TIME=tgt.START_TIME)
+    WHEN NOT MATCHED THEN
+    INSERT(
+        PROCESS_MODULE,
+        SCHEDULER,
+        PROCESS_NAME,
+        SOURCE_NAME,
+        TARGET_NAME,
+        START_TIME,
+        END_TIME,
+        PROCESS_DT,
+        NUM_RECORDS_AFFECTED,
+        STATUS,
+        RETURN_MESSAGE,
+        schedule_time,
+        Job_name
+        )
+    VALUES
+        (
+        "Network Genie nw_research_assistant",
+        "airflow",
+        prc_name,
+        "vz-it-pr-i37v-ndldo-0.vzn_ndl_vpi_core_views_v.sm_exp_collapsed_daily_view",
+        "aid_nwgenie_core_tbls.fuze_projects",
+        start_time,
+        NULL,
+        src_prc_dt,
+        NULL,
+        "Started",
+        NULL,
+        safe_cast(process_date as timestamp),
+        "gudv_nw_research_assistant_fuze_projects_daily_norm"
+        );
+
+DELETE FROM ${fuze_projects_module_gudv_tgt_id}.${fuze_projects_module_gudv_tgt_dataset_name}.${fuze_projects_module_gudv_tgt_tblname} WHERE  trans_dt=Cast(trans_date AS date)  ;
+
+INSERT INTO ${fuze_projects_module_gudv_tgt_id}.${fuze_projects_module_gudv_tgt_dataset_name}.${fuze_projects_module_gudv_tgt_tblname}
+(
+trans_dt,
+project_number,
+fuze_site_id,
+solution_type,
+primary_rationale,
+status,
+por_year,
+on_air_year,
+build_plan_year,
+site,
+site_list,
+enodeb_id,
+sector,
+offload,
+offload_pct,
+rationale,
+solution_initiative,
+program_labels,
+informational,
+process_dt,
+created_timestamp
+)
+SELECT DISTINCT
+   trans_dt,
+   project_number, 
+   fuze_site_id, 
+   solution_type, 
+   primary_rationale,
+   status, 
+   por_year,
+   on_air_year,
+   CAST(CAST(build_plan_year AS numeric) AS int64) AS build_plan_year,
+   site,
+   site_list,
+   --IF(ARRAY_LENGTH(SPLIT(site,'-'))>=1 and site not like '%;%',SPLIT(site,'-')[OFFSET(0)],null) as enodeb_id,
+   --IF(ARRAY_LENGTH(SPLIT(site,'-'))>1 and site not like '%;%',SPLIT(site,'-')[OFFSET(1)],null) as sector,
+   IF(LENGTH(site)>=10 and site not like '%;%',SPLIT(site,'-')[OFFSET(0)],null) as enodeb_id,
+   IF(LENGTH(site)>=10 and site not like '%;%',SPLIT(site,'-')[OFFSET(1)],null) as sector,
+   offload,
+   offload_pct,
+   rationale,
+   solution_initiative,
+   program_labels,
+   informational,
+   SAFE_CAST(process_date AS DATE) AS process_dt,
+    cast(current_timestamp as timestamp) as created_timestamp
+   FROM ${fuze_projects_module_i37v_src_id}.${fuze_projects_module_i37v_src_dataset_name}.${fuze_projects_module_i37v_src_tblname}
+   JOIN UNNEST(SPLIT(site_list,'|')) site WITH OFFSET
+   JOIN UNNEST(SPLIT(offload, ';')) offload_pct WITH OFFSET
+   USING(OFFSET)
+   WHERE CAST(trans_dt AS DATE) = Cast(trans_date AS date)
+   AND UPPER(status) NOT IN ('CANCELED', 'COMPLETED', 'INACTIVE', 'DELETED', 'ON_HOLD')
+
+;
+-- Insert record into Audit table
+UPDATE ${target_project_id}.${audit_tgt_dataset_name}.${audit_target_tblname}
+SET
+END_TIME=current_datetime(),
+NUM_RECORDS_AFFECTED=@@Row_Count,
+STATUS="Completed",
+RETURN_MESSAGE="Success"
+WHERE
+PROCESS_NAME="fuze_projects_nrb_daily_norm_sp" AND start_time=Cast(process_date AS datetime);
+
+-- Insert record into Audit table
+SELECT "Process Completed Successfully";
+
+EXCEPTION WHEN ERROR THEN
+--update audit table with error status
+UPDATE ${target_project_id}.${audit_tgt_dataset_name}.${audit_target_tblname}
+SET
+END_TIME=current_datetime(),
+STATUS="Error",
+RETURN_MESSAGE=Concat(@@error.message,"------***----",@@ERROR.statement_text)
+WHERE
+PROCESS_NAME="fuze_projects_nrb_daily_norm_sp" AND start_time=Cast(process_date AS datetime);
+RAISE USING message=@@error.message;
+
+END
+;
+
