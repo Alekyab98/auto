@@ -1,0 +1,123 @@
+CREATE OR REPLACE PROCEDURE ${alarm_target_dataset_name}.network_alarms_sp(trans_date STRING,process_date STRING)
+OPTIONS(strict_mode=False)
+
+BEGIN
+     --Insert entry into audit table
+    MERGE ${target_project_id}.${audit_tgt_dataset_name}.${audit_target_tblname} tgt
+    USING(
+        SELECT "network_alarms_nrb_daily_norm_sp" prc_name, Cast(process_date AS datetime) AS start_time, Cast(SPLIT(process_date," ")[OFFSET(0)] AS DATE) src_prc_dt
+        ) src
+    ON (src.prc_name=tgt.PROCESS_NAME AND src.START_TIME=tgt.START_TIME)
+    WHEN NOT MATCHED THEN
+    INSERT(
+        PROCESS_MODULE,
+        SCHEDULER,
+        PROCESS_NAME,
+        SOURCE_NAME,
+        TARGET_NAME,
+        START_TIME,
+        END_TIME,
+        PROCESS_DT,
+        NUM_RECORDS_AFFECTED,
+        STATUS,
+        RETURN_MESSAGE,
+        schedule_time,
+        Job_name
+        )
+    VALUES
+        (
+        "Network Genie nw_research_assistant",
+        "airflow",
+        prc_name,
+        "vz-it-pr-gudv-dtwndo-0.aid_dtwin_ran_core_tbls_rd_v.dim_alerts_alarm_norm_v0",
+        "aid_nwgenie_core_tbls.network_alarms",
+        start_time,
+        NULL,
+        src_prc_dt,
+        NULL,
+        "Started",
+        NULL,
+        safe_cast(process_date as timestamp),
+        "gudv_nw_research_assistant_network_alarms_daily_norm"
+        );
+
+DELETE FROM ${alarm_target_project_id}.${alarm_target_dataset_name}.${alarm_target_table_name} WHERE  trans_dt=Cast(trans_date AS date)  and trans_dt is not null;
+
+INSERT INTO  ${alarm_target_project_id}.${alarm_target_dataset_name}.${alarm_target_table_name}
+(
+   trans_dt ,
+   enodeb_id ,
+   sector ,
+   carrier ,
+   request_id ,
+   priority ,
+   start_time ,
+   end_time ,
+   subtype ,
+   equipment_type ,
+   source ,
+   technology ,
+   type,
+   clear_type,
+   occurrences,
+   alert_duration_mins,
+   time_bw_alarms,
+   total_alert_count_per_enb ,
+   process_dt,
+   created_timestamp
+
+)
+select
+safe_cast(trans_date as date) as trans_dt,
+ enodeb_id,
+ sector,
+ carrier,
+ request_id,
+ priority,
+ start_time,
+ end_time,
+ subtype,
+ equipment_type,
+ source,
+ technology,
+ type,
+ clear_type,
+SUM(occurrences) AS occurrences,
+timestamp_diff(max(end_time),min(start_time), minute) as alert_duration_mins,
+timestamp_diff(lead(timestamp(min(start_time))) over (partition by enodeb_id order by timestamp(min(start_time))),timestamp(min(start_time)),minute) as time_bw_alarms,
+count(*) as total_alert_count_per_enb,
+safe_cast(process_date as DATE ) as process_dt,
+cast(current_timestamp as timestamp) as created_timestamp
+FROM  ${alarm_src_project_id}.${alarm_src_dataset_name}.${alarm_src_table_name}
+WHERE DATE(trans_dt) =safe_cast(trans_date as date)
+AND CAST(enodeb_id AS NUMERIC) != 0 AND enodeb_id IS NOT NULL
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14
+;
+
+-- Insert record into Audit table
+UPDATE ${target_project_id}.${audit_tgt_dataset_name}.${audit_target_tblname}
+SET
+END_TIME=current_datetime(),
+NUM_RECORDS_AFFECTED=@@Row_Count,
+STATUS="Completed",
+RETURN_MESSAGE="Success"
+WHERE
+PROCESS_NAME="network_alarms_nrb_daily_norm_sp" AND start_time=Cast(process_date AS datetime);
+
+-- Insert record into Audit table
+SELECT "Process Completed Successfully";
+
+EXCEPTION WHEN ERROR THEN
+--update audit table with error status
+UPDATE ${target_project_id}.${audit_tgt_dataset_name}.${audit_target_tblname}
+SET
+END_TIME=current_datetime(),
+STATUS="Error",
+RETURN_MESSAGE=Concat(@@error.message,"------***----",@@ERROR.statement_text)
+WHERE
+PROCESS_NAME="network_alarms_nrb_daily_norm_sp" AND start_time=Cast(process_date AS datetime);
+RAISE USING message=@@error.message;
+
+END
+;
+
