@@ -1,0 +1,259 @@
+
+CREATE OR REPLACE TABLE ${target_project_id}.${tracfone_target_dataset_name}.tracfone_stg AS
+with score as (
+ SELECT * FROM
+ (
+   SELECT rpt_dt, acct_num, cust_id, cust_line_seq_id, imsi,score_name, score_value, score_decile
+   FROM ${tracfone_mlop_src_project_id}.${tracfone_mlop_src_scores_dataset_id}.${tracfone_mlop_src_scores_tbl}
+   WHERE rpt_dt BETWEEN from_date AND to_date
+ ) a
+ PIVOT(AVG(a.score_value) as score, AVG(a.score_decile) as decile FOR a.score_name in ('QES3_reliability_subscore','QES3','QES3_capacity_subscore', 'QES3_ethernet_backhaul_subscore','QES3_signal_quality_coverage_subscore','na_kpis','QES3_5g_subscore'))
+
+
+
+
+), raw_kpi AS (
+ SELECT *,
+  CAST( (case
+   when prim_enb_num between 0 and 299999 then FLOOR(prim_enb_num/1000)
+   when prim_enb_num between 300000 and 599999 then FLOOR(prim_enb_num/1000) - 300
+   when prim_enb_num between 600000 and 899999 then FLOOR(prim_enb_num/1000) - 600
+   when prim_enb_num > 899999 then 900
+   else 999 end) AS INT64 ) as lte_market_id
+ FROM (
+ SELECT raw_kpi.rpt_dt, raw_kpi.acct_num, raw_kpi.cust_id, raw_kpi.cust_line_seq_id, raw_kpi.imsi,raw_kpi.mtn, raw_kpi.primary_enodeb, raw_kpi.customer_segment, raw_kpi.is_prepaid, raw_kpi.is_fwa, raw_kpi.device_generation, raw_kpi.plan_type, raw_kpi.device_type,  cast(raw_kpi.primary_enodeb AS int64) AS prim_enb_num, raw_kpi.submarket, rsrp_avg, rsrp_5g_avg, rsrq_avg, rsrq_5g_avg, sinr_avg, duration_5g_pct, minutes_of_usage, usage_voice_rate, usage_allowed, usage_overage, usage_5g_pct, usage_5g_rate, dropped_calls_rate, sessions_count, dropped_session_pct, normal_releases_pct, qci9_data_sessions_pct, cqi_per_session_avg, end_dist_to_site_avg, prbu_avg, pbit0_fd_max, pbit5_fd_max, pbit5_fdv_avg, pbit0_fdv_avg, pbit0_fl_avg, pbit5_fl_avg, pbit0_fd_avg_ot, pbit5_fd_avg_ot, pbit0_fdv_avg_ot, pbit5_fdv_avg_ot, pbit0_fl_avg_ot, pbit5_fl_avg_ot, customer_network_capability
+ FROM ${tracfone_mlop_src_project_id}.${tracfone_mlop_src_curated_dataset_id}.${tracfone_mlop_src_curated_tbl}  raw_kpi
+ WHERE rpt_dt BETWEEN from_date AND to_date
+ ) AS a
+),
+site_map as (
+ SELECT DISTINCT site_id, enodeb_id, latitude, longitude
+ FROM (
+   SELECT DISTINCT cor.site_id, cor.enodeb_id, site.latitude, site.longitude,
+   row_number() OVER (PARTITION BY cor.enodeb_id ORDER BY cor.site_id DESC, site.latitude DESC, site.longitude ASC) AS row_num_loc
+   FROM ${tracfone_gudv_src_project_id}.${tracfone_gudv_ran_src_dataset_id}.${tracfone_gudv_ran_src_enodeb_tbl} AS cor
+   JOIN ${tracfone_gudv_src_project_id}.${tracfone_gudv_ran_src_dataset_id}.${tracfone_gudv_ran_src_cell_tbl} AS site
+   ON cor.site_id = site.site_id
+   WHERE cor.trans_dt = CAST(date_sub(current_date(),  INTERVAL 5 DAY) AS STRING)
+   AND site.trans_dt = CAST(date_sub(current_date(),  INTERVAL 5 DAY) AS STRING)
+   AND COALESCE(safe_cast(cor.enodeb_id AS int64), 0) != 0
+   AND COALESCE(safe_cast(site.site_id AS int64), 0) != 0
+ )
+ WHERE row_num_loc = 1
+)
+SELECT DATE_TRUNC(raw_kpi.rpt_dt, MONTH)  AS trans_month, raw_kpi.rpt_dt as trans_dt, raw_kpi.imsi,raw_kpi.mtn, raw_kpi.cust_id, raw_kpi.cust_line_seq_id, raw_kpi.acct_num, raw_kpi.customer_segment, raw_kpi.is_prepaid, raw_kpi.is_fwa, raw_kpi.device_generation, safe_cast(raw_kpi.lte_market_id as string) as lte_market_id, mar.market, mar.lte_market_name, mar.submarket, mar.submarket_long, raw_kpi.device_type, raw_kpi.primary_enodeb,
+COUNT(DISTINCT raw_kpi.imsi) AS distinct_imsi,
+COUNT(raw_kpi.imsi) AS imsi_total,
+COUNT(rsrp_5g_avg) AS imsi_total_5G_rsrx,
+AVG(usage_allowed) + AVG(usage_overage) AS usage,
+AVG(customer_network_capability) AS avg_customer_network_capability,
+AVG(rsrp_avg) AS avg_rsrp_avg,
+AVG(rsrp_5g_avg) AS avg_rsrp_5g_avg,
+AVG(rsrq_avg) AS avg_rsrq_avg,
+AVG(rsrq_5g_avg) AS avg_rsrq_5g_avg,
+AVG(sinr_avg) AS avg_sinr_avg,
+AVG(duration_5g_pct) AS avg_duration_5g_pct,
+safe_cast(AVG(minutes_of_usage) as INT64)AS avg_minutes_of_usage,
+AVG(usage_voice_rate) AS avg_usage_voice_rate,
+AVG(usage_allowed) AS avg_usage_allowed,
+AVG(usage_overage) AS avg_usage_overage,
+AVG(usage_5g_pct) AS avg_usage_5g_pct,
+AVG(usage_5g_rate) AS avg_usage_5g_rate,
+AVG(dropped_calls_rate) AS avg_dropped_calls_rate,
+safe_cast(AVG(sessions_count) as INT64) AS avg_sessions_count,
+AVG(dropped_session_pct) AS avg_dropped_session_pct,
+AVG(normal_releases_pct) AS avg_normal_releases_pct,
+AVG(qci9_data_sessions_pct) AS avg_qci9_data_sessions_pct,
+AVG(cqi_per_session_avg) AS avg_cqi_per_session_avg,
+AVG(end_dist_to_site_avg) AS avg_end_dist_to_site_avg,
+AVG(prbu_avg) AS avg_prbu_avg,
+AVG(pbit0_fd_max) AS avg_pbit0_fd_max,
+AVG(pbit5_fd_max) AS avg_pbit5_fd_max,
+AVG(pbit5_fdv_avg) AS avg_pbit5_fdv_avg,
+AVG(pbit0_fdv_avg) AS avg_pbit0_fdv_avg,
+AVG(pbit0_fl_avg) AS avg_pbit0_fl_avg,
+AVG(pbit5_fl_avg) AS avg_pbit5_fl_avg,
+AVG(pbit0_fd_avg_ot) AS avg_pbit0_fd_avg_ot,
+AVG(pbit5_fd_avg_ot) AS avg_pbit5_fd_avg_ot,
+AVG(pbit0_fdv_avg_ot) AS avg_pbit0_fdv_avg_ot,
+AVG(pbit5_fdv_avg_ot) AS avg_pbit5_fdv_avg_ot,
+AVG(pbit0_fl_avg_ot) AS avg_pbit0_fl_avg_ot,
+AVG(pbit5_fl_avg_ot) AS avg_pbit5_fl_avg_ot,
+AVG(score.score_QES3) AS score_qes3,
+AVG(score.score_QES3_reliability_subscore) AS score_qes3_reliability_subscore,
+AVG(score.score_QES3_capacity_subscore) AS score_qes3_capacity_subscore,
+AVG(score.score_QES3_signal_quality_coverage_subscore) AS score_qes3_signal_quality_coverage_subscore,
+AVG(score.score_QES3_5g_subscore) AS score_qes3_5g_subscore,
+AVG(score.score_QES3_ethernet_backhaul_subscore) AS score_qes3_ethernet_backhaul_subscore,
+safe_cast(AVG(score.decile_QES3) as INT64)AS decile_qes3,
+safe_cast(AVG(score.decile_QES3_reliability_subscore) as INT64) AS decile_qes3_reliability_subscore,
+safe_cast(AVG(score.decile_QES3_capacity_subscore) as INT64) AS decile_QES3_capacity_subscore,
+safe_cast(AVG(score.decile_QES3_signal_quality_coverage_subscore) as INT64) AS decile_qes3_signal_quality_coverage_subscore,
+safe_cast(AVG(score.decile_QES3_5g_subscore) as INT64) AS decile_qes_5g_subscore,
+safe_cast(AVG(score.decile_QES3_ethernet_backhaul_subscore) as INT64) AS decile_qes3_ethernet_backhaul_subscore,
+SAFE_CAST(process_date AS DATE) AS process_dt,
+cast(current_timestamp as timestamp )
+FROM raw_kpi
+LEFT JOIN score
+ON score.acct_num = raw_kpi.acct_num
+AND score.cust_id = raw_kpi.cust_id
+AND score.cust_line_seq_id = raw_kpi.cust_line_seq_id
+AND score.imsi = raw_kpi.imsi
+AND score.rpt_dt = raw_kpi.rpt_dt
+LEFT JOIN site_map
+ON site_map.enodeb_id = raw_kpi.primary_enodeb
+-- WHERE site_id in (712705, 719029)
+LEFT JOIN ${tracfone_gudv_src_project_id}.${tracfone_gudv_analytics_src_dataset_id}.${tracfone_mlop_src_scores_tbl} AS mar
+ON CAST(mar.lte_market_id AS INT64) = raw_kpi.lte_market_id
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18
+;
+
+INSERT INTO  ${target_project_id}.${tracfone_target_dataset_name}.${tracfone_target_table_name}
+(
+trans_month,
+trans_dt,
+imsi,
+mtn,
+customer_segment,
+cust_id,
+cust_line_seq_id,
+acct_num,
+is_prepaid,
+is_fwa,
+device_generation,
+lte_market_id,
+lte_market_name,
+market,
+submarket,
+submarket_long,
+device_type,
+distinct_imsi,
+imsi_total,
+imsi_total_5G_rsrx,
+usage,
+prim_enb_num,
+primary_enodeb,
+avg_customer_network_capability,
+avg_rsrp_avg,
+avg_rsrp_5g_avg,
+avg_rsrq_avg,
+avg_rsrq_5g_avg,
+avg_sinr_avg,
+avg_duration_5g_pct,
+avg_minutes_of_usage,
+avg_usage_voice_rate,
+avg_usage_allowed,
+avg_usage_overage,
+avg_usage_5g_pct,
+avg_usage_5g_rate,
+avg_dropped_calls_rate,
+avg_sessions_count,
+avg_dropped_session_pct,
+avg_normal_releases_pct,
+avg_qci9_data_sessions_pct,
+avg_cqi_per_session_avg,
+avg_end_dist_to_site_avg,
+avg_prbu_avg,
+avg_pbit0_fd_max,
+avg_pbit5_fd_max,
+avg_pbit5_fdv_avg,
+avg_pbit0_fdv_avg,
+avg_pbit0_fl_avg,
+avg_pbit5_fl_avg,
+avg_pbit0_fd_avg_ot,
+avg_pbit5_fd_avg_ot,
+avg_pbit0_fdv_avg_ot,
+avg_pbit5_fdv_avg_ot,
+avg_pbit0_fl_avg_ot,
+avg_pbit5_fl_avg_ot,
+score_qes3,
+score_qes3_reliability_subscore,
+score_qes3_capacity_subscore,
+score_qes3_signal_quality_coverage_subscore,
+score_qes3_5g_subscore,
+score_qes3_ethernet_backhaul_subscore,
+decile_qes3,
+decile_qes3_reliability_subscore,
+decile_qes3_capacity_subscore,
+decile_qes3_signal_quality_coverage_subscore,
+decile_qes3_5g_subscore,
+decile_qes3_ethernet_backhaul_subscore,
+process_dt,
+created_timestamp
+)
+select
+report_month AS trans_month,
+report_date AS trans_dt,
+imsi,
+mtn,
+customer_segment,
+cust_id,
+cust_line_seq_id,
+acct_num,
+is_prepaid,
+is_fwa,
+device_generation,
+SAFE_CAST(lte_market_id AS  STRING) AS lte_market_id,
+lte_market_name,
+market,
+submarket,
+submarket_long,
+device_type,
+distinct_imsi,
+imsi_total,
+imsi_total_5G_rsrx,
+usage,
+prim_enb_num,
+primary_enodeb,
+avg_customer_network_capability,
+avg_rsrp_avg,
+avg_rsrp_5g_avg,
+avg_rsrq_avg,
+avg_rsrq_5g_avg,
+avg_sinr_avg,
+avg_duration_5g_pct,
+SAFE_CAST(avg_minutes_of_usage AS  INT64) AS avg_minutes_of_usage,
+avg_usage_voice_rate,
+avg_usage_allowed,
+avg_usage_overage,
+avg_usage_5g_pct,
+avg_usage_5g_rate,
+avg_dropped_calls_rate,
+SAFE_CAST(avg_sessions_count AS  INT64) AS avg_sessions_count,
+avg_dropped_session_pct,
+avg_normal_releases_pct,
+avg_qci9_data_sessions_pct,
+avg_cqi_per_session_avg,
+avg_end_dist_to_site_avg,
+avg_prbu_avg,
+avg_pbit0_fd_max,
+avg_pbit5_fd_max,
+avg_pbit5_fdv_avg,
+avg_pbit0_fdv_avg,
+avg_pbit0_fl_avg,
+avg_pbit5_fl_avg,
+avg_pbit0_fd_avg_ot,
+avg_pbit5_fd_avg_ot,
+avg_pbit0_fdv_avg_ot,
+avg_pbit5_fdv_avg_ot,
+avg_pbit0_fl_avg_ot,
+avg_pbit5_fl_avg_ot,
+score_QES3,
+score_QES3_reliability_subscore,
+score_QES3_capacity_subscore,
+score_QES3_signal_quality_coverage_subscore,
+score_QES3_5g_subscore,
+score_QES3_ethernet_backhaul_subscore,
+SAFE_CAST(decile_QES3 AS  INT64) AS decile_QES3,
+SAFE_CAST(decile_QES3_reliability_subscore AS  INT64) AS decile_QES3_reliability_subscore,
+SAFE_CAST(decile_QES3_capacity_subscore AS  INT64) AS decile_QES3_capacity_subscore,
+SAFE_CAST(decile_QES3_signal_quality_coverage_subscore AS  INT64) AS decile_QES3_signal_quality_coverage_subscore,
+SAFE_CAST(decile_QES3_5g_subscore AS  INT64) AS decile_QES3_5g_subscore,
+SAFE_CAST(decile_QES3_ethernet_backhaul_subscore AS  INT64) AS decile_QES3_ethernet_backhaul_subscore,
+SAFE_CAST(process_date AS DATE) AS process_dt,
+cast(current_timestamp as timestamp )
+FROM
+${target_project_id}.${tracfone_target_dataset_name}.tracfone_stg
+;
+
+
