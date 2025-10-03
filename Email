@@ -1,0 +1,14 @@
+Hi Team,
+
+Quick update on my recent work
+Last quarter:
+Handled end-to-end work for Aether 5G data.includes
+1. Data curation, building and validating data pipelines 
+2. Ensured consistency between Grafana data and GCP data.
+3. A major part of the effort on backfilling historic data, extracting from Grafana, and loading to BigQuery.
+
+Current:
+Working on the AUTOBI Network Genie Project, where I had earlier built around  11 super-curated tables. Currently, I'm working on below enhancements on  these tables 
+1.Updating DAGs(migrating from daily to hourly)
+2. Setting up data observability 
+3. Documenting data lineage 
