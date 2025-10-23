@@ -1,0 +1,31 @@
+ (SELECT
+    DATE(trans_dt) AS trans_dt,
+    enodeb_id,
+    sector,
+    carrier,
+    request_id,
+    priority,
+    start_time,
+    end_time,
+    subtype,
+    equipment_type,
+    source,
+    technology,
+    type,
+    clear_type,
+    SUM(occurrences) AS occurrences,
+    TIMESTAMP_DIFF(MAX(end_time), MIN(start_time), MINUTE) AS alert_duration_mins,
+    TIMESTAMP_DIFF(
+        LEAD(TIMESTAMP(MIN(start_time))) OVER (PARTITION BY enodeb_id ORDER BY TIMESTAMP(MIN(start_time))),
+        TIMESTAMP(MIN(start_time)),
+        MINUTE
+    ) AS time_bw_alarms,
+    COUNT(*) AS total_alert_count_per_enb
+FROM
+   `vz-it-pr-gudv-dtwndo-0.aid_dtwin_ran_core_tbls_prot_v.dim_alerts_alarm_norm_v0`
+WHERE
+    DATE(trans_dt) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 15 DAY) AND CURRENT_DATE()
+    AND CAST(enodeb_id AS NUMERIC) != 0
+    AND enodeb_id IS NOT NULL
+GROUP BY
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
